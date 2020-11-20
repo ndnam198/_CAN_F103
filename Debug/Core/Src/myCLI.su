@@ -1,0 +1,3 @@
+myCLI.c:11:6:vUART_Init	24	static
+myCLI.c:29:6:HAL_UART_RxCpltCallback	24	static
+myCLI.c:61:6:vServeCLICommand	24	static
