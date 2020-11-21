@@ -29,6 +29,7 @@
 #include "myRingBuffer.h"
 #include "retarget.h"
 #include "myCLI.h"
+#include "mySHT31.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -38,9 +39,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define BLINK_LED_FREQ (500u)
-#define APP1_FREQ (50u)
-#define IWDG_TIME (5000lu)
+#define BLINK_LED_FREQ (500 * HAL_GetTickFreq())
+#define APP1_FREQ (1000 * HAL_GetTickFreq())
+#define APP2_FREQ (900 * HAL_GetTickFreq())
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -61,12 +62,17 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 uint32_t prev_time_blink_led = 0;
-uint32_t prev_time_app = 0;
+uint32_t prev_time_app_1 = 0;
+uint32_t prev_time_app_2 = 0;
 uint32_t superloop_first_tick = 0;
 uint32_t superloop_process_time = 0;
-USART_StringReceive_t uart_receive_handle = {0};
-MCUProcessingEvaluate_t mcu_processing_time = {0};
-char *temp_str;
+volatile USART_StringReceive_t uart_receive_handle = {0};
+MCUProcessingEvaluate_t mcu_process_time_handle = {
+    .current_process_time = 0,
+    .max_process_time = 0,
+    .min_process_time = 5,
+};
+SHT31_TypeDef_t sht31_handle = {0};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -74,10 +80,9 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 void MX_USART2_UART_Init(void);
 static void MX_CAN_Init(void);
-static void MX_I2C1_Init(void);
+void MX_I2C1_Init(void);
 static void MX_TIM3_Init(void);
 void MX_IWDG_Init(void);
-
 /* USER CODE BEGIN PFP */
 void _Error_Handler(char *file, int line);
 
@@ -116,20 +121,18 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  //  MX_USART2_UART_Init();
   MX_CAN_Init();
-  MX_I2C1_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
-  vUART_Init(&huart2, USART2, &uart_receive_handle);
+  I2C_Init();
+  vUART_Init(&huart2, USART2, (USART_StringReceive_t *)&uart_receive_handle);
   //  vIWDG_Init(&hiwdg, IWDG_TIME);
   __RETARGET_INIT(DEBUG_USART);
   __PRINT_RESET_CAUSE();
   __MY_OFF_ALL_LED();
-  printf("IWDG set %lums\r\n", IWDG_TIME);
-
+  HAL_TIM_Base_Start_IT(&htim3);
+  printf("Start Application\r\n");
   /* USER CODE END 2 */
-
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -140,40 +143,34 @@ int main(void)
     {
       prev_time_blink_led = superloop_first_tick;
       __MY_TOGGLE_LED(LED_4);
-      __PRINT_TIME_STAMP();
     }
 
     /* Task read sensor 1000ms */
-    if (superloop_first_tick - prev_time_app >= APP1_FREQ)
+    if (superloop_first_tick - prev_time_app_1 >= APP1_FREQ)
     {
-      prev_time_app = superloop_first_tick;
-      if (uart_receive_handle.rx_cplt_flag == 1)
+      prev_time_app_1 = superloop_first_tick;
+    }
+
+    if (superloop_first_tick - prev_time_app_2 >= APP2_FREQ)
+    {
+      prev_time_app_2 = superloop_first_tick;
+      SHT31_SendCommand(eCMD_MEAS_CLOCKSTR_H);
+      SHT31_ReadData(&sht31_handle);
+      SHT31_CRCCheck(&sht31_handle);
+      if (sht31_handle.crc_flag == 1)
       {
-        uint32_t len = ARRAY_LENGTH(uart_receive_handle.rx_buffer);
-        printf("Input string :\"%s\"\r\n", uart_receive_handle.rx_buffer);
-        temp_str = &uart_receive_handle.rx_buffer;
-        /* Print debug */
-        PRINT_ADDRESS(uart_receive_handle.rx_buffer);
-        PRINT_VAR(temp_str);
-        if (IS_STRING(temp_str, "led1 on"))
-        {
-          __MY_WRITE_LED(LED_1, ON);
-        }
-        else if (IS_STRING(temp_str, "led1 off"))
-        {
-          __MY_WRITE_LED(LED_1, OFF);
-        }
-        else
-        {
-          printf("Unknown Command\r\n");
-        }
-        //        vServeCLICommand(&uart_receive_handle);
-        uart_receive_handle.rx_cplt_flag = 0;
+        SHT31_calculateTemp(&sht31_handle);
+        SHT31_calculateHumid(&sht31_handle);
+        printf("temp = %2.2f\r\nhumid = %2.2f\r\n\r\n", sht31_handle.Temperature, sht31_handle.Humidity);
+      }
+      else
+      {
+        printf("CRC failed\r\n");
       }
     }
 
     superloop_process_time = HAL_GetTick() - superloop_first_tick;
-    vMCUProcessingEvaluate(&mcu_processing_time, superloop_process_time);
+    vMCUProcessTimeUpdate(&mcu_process_time_handle, superloop_process_time);
     //    HAL_IWDG_Refresh(&hiwdg);
     /* USER CODE END WHILE */
 
@@ -204,7 +201,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+    Error_Handler();
   }
   /** Initializes the CPU, AHB and APB buses clocks
      */
@@ -216,7 +213,7 @@ void SystemClock_Config(void)
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+    Error_Handler();
   }
 }
 
@@ -249,7 +246,7 @@ static void MX_CAN_Init(void)
   hcan.Init.TransmitFifoPriority = DISABLE;
   if (HAL_CAN_Init(&hcan) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+    Error_Handler();
   }
   /* USER CODE BEGIN CAN_Init 2 */
 
@@ -261,7 +258,7 @@ static void MX_CAN_Init(void)
  * @param None
  * @retval None
  */
-static void MX_I2C1_Init(void)
+void MX_I2C1_Init(void)
 {
 
   /* USER CODE BEGIN I2C1_Init 0 */
@@ -282,7 +279,7 @@ static void MX_I2C1_Init(void)
   hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
   if (HAL_I2C_Init(&hi2c1) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+    Error_Handler();
   }
   /* USER CODE BEGIN I2C1_Init 2 */
 
@@ -309,7 +306,7 @@ void MX_IWDG_Init(void)
   hiwdg.Init.Reload = 4095;
   if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+    Error_Handler();
   }
   /* USER CODE BEGIN IWDG_Init 2 */
 
@@ -342,18 +339,18 @@ static void MX_TIM3_Init(void)
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+    Error_Handler();
   }
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
   if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+    Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+    Error_Handler();
   }
   /* USER CODE BEGIN TIM3_Init 2 */
 
@@ -385,7 +382,7 @@ void MX_USART2_UART_Init(void)
   huart2.Init.OverSampling = UART_OVERSAMPLING_16;
   if (HAL_UART_Init(&huart2) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+    Error_Handler();
   }
   /* USER CODE BEGIN USART2_Init 2 */
 
@@ -428,13 +425,6 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void _Error_Handler(char *file, int line)
-{
-  while (1)
-  {
-    printf("\r\nError file %s line %d", file, line);
-  }
-}
 /* USER CODE END 4 */
 
 /**
@@ -448,7 +438,19 @@ void _Error_Handler(char *file, int line)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* USER CODE BEGIN Callback 0 */
-
+  if (htim->Instance == TIM3)
+  {
+    static uint32_t count;
+    count++;
+    if (count == 50) /* Every 50ms */
+    {
+      count = 0;
+      if (uart_receive_handle.rx_cplt_flag == 1)
+      {
+        vExecuteCLIcmd((USART_StringReceive_t *)&uart_receive_handle);
+      }
+    }
+  }
   /* USER CODE END Callback 0 */
   if (htim->Instance == TIM4)
   {

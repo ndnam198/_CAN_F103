@@ -28,7 +28,8 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_uart.h \
  ../Core/Inc/myDebug.h ../Core/Inc/main.h ../Core/Inc/retarget.h \
  ../Core/Inc/myF103.h ../Core/Inc/myDebug.h ../Core/Inc/myMisc.h \
- ../Core/Inc/myRingBuffer.h ../Core/Inc/retarget.h ../Core/Inc/myCLI.h
+ ../Core/Inc/myRingBuffer.h ../Core/Inc/retarget.h ../Core/Inc/myCLI.h \
+ ../Core/Inc/mySHT31.h ../Core/Inc/myI2C.h
 
 ../Core/Inc/main.h:
 
@@ -103,3 +104,7 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
 ../Core/Inc/retarget.h:
 
 ../Core/Inc/myCLI.h:
+
+../Core/Inc/mySHT31.h:
+
+../Core/Inc/myI2C.h:

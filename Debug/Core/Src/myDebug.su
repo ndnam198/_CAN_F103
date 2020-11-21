@@ -1,8 +1,8 @@
 myDebug.c:4:6:vUARTSend	8	static
-myDebug.c:36:15:resetCauseGet	16	static
-myDebug.c:81:13:resetCauseGetName	24	static
-myDebug.c:115:6:vIWDG_Init	24	static
+myDebug.c:32:15:resetCauseGet	16	static
+myDebug.c:77:13:resetCauseGetName	24	static
+myDebug.c:111:6:vIWDG_Init	24	static
 myDebug.c:131:13:_Error_Handler	16	static
-myDebug.c:142:6:vTimeStamp	40	static
-myDebug.c:171:6:vMCUProcessingEvaluate	16	static
-myDebug.c:184:6:vPrintProcessingTime	16	static
+myDebug.c:139:6:vTimeStamp	48	static
+myDebug.c:195:6:vMCUProcessTimeUpdate	24	static
+myDebug.c:233:6:vPrintProcessingTime	16	static
