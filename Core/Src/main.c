@@ -66,7 +66,7 @@ uint32_t superloop_first_tick = 0;
 uint32_t superloop_process_time = 0;
 USART_StringReceive_t uart_receive_handle = {0};
 MCUProcessingEvaluate_t mcu_processing_time = {0};
-
+char *temp_str;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -149,12 +149,17 @@ int main(void)
       prev_time_app = superloop_first_tick;
       if (uart_receive_handle.rx_cplt_flag == 1)
       {
+        uint32_t len = ARRAY_LENGTH(uart_receive_handle.rx_buffer);
         printf("Input string :\"%s\"\r\n", uart_receive_handle.rx_buffer);
-        if (IS_STRING(&uart_receive_handle.rx_buffer, "led1 on"))
+        temp_str = &uart_receive_handle.rx_buffer;
+        /* Print debug */
+        PRINT_ADDRESS(uart_receive_handle.rx_buffer);
+        PRINT_VAR(temp_str);
+        if (IS_STRING(temp_str, "led1 on"))
         {
           __MY_WRITE_LED(LED_1, ON);
         }
-        else if (IS_STRING(&uart_receive_handle.rx_buffer, "led1 off"))
+        else if (IS_STRING(temp_str, "led1 off"))
         {
           __MY_WRITE_LED(LED_1, OFF);
         }
@@ -162,7 +167,7 @@ int main(void)
         {
           printf("Unknown Command\r\n");
         }
-//        vServeCLICommand(&uart_receive_handle);
+        //        vServeCLICommand(&uart_receive_handle);
         uart_receive_handle.rx_cplt_flag = 0;
       }
     }
